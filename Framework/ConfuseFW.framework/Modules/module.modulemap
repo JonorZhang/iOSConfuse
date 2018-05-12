@@ -1,0 +1,11 @@
+framework module ConfuseFW {
+  umbrella header "ConfuseFW.h"
+
+  export *
+  module * { export * }
+}
+
+module ConfuseFW.Swift {
+    header "ConfuseFW-Swift.h"
+    requires objc
+}
