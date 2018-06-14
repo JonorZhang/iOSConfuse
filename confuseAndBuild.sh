@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 #  confuse.sh
 #  OADHelper
@@ -6,40 +6,48 @@
 #  Created by Jonor on 2018/4/28.
 #  Copyright © 2018年 SOUNDMAX. All rights reserved.
 
+# ⚠️声明
+# 1. 请将该脚本放在Xcode工程的根目录。
+# 2. 当前版本未配置完整Xcode环境变量，仅支持混淆功能，不支持framework编译，若需编译请用Xcode运行该脚本。
+# 3. PS：下一版更新会支持在终端运行脚本。
+
+# 认为定义了‘PROJECT_NAME’的是从Xcode运行，未定义则是从终端运行
 if [ -z "$PROJECT_NAME" ]; then
-    echo "未配置完整环境变量，请用Xcode运行该脚本"
-    exit
+    CONFUSE_DIR="."
 else
     CONFUSE_DIR="${SRCROOT}/${PROJECT_NAME}"
 fi
+
 CONFUSE_PREFIX="private_"
-BACKUP_TYPE="bak"
-SOURCE_TYPE="swift"
-CONFUSE_SYMBOL_FILE="${SRCROOT}/.symbol.log"
-CONFUSE_FILE="${SRCROOT}/.confuse.log"
-CONFUSE_FLAG="${SRCROOT}/.confuseFlag"
 
-# 备份文件 $1:file full path
-backupFile() {
-    file=$1
-    backup=`echo $file | sed "s:\([^/]*.$SOURCE_TYPE\):.&.$BACKUP_TYPE:g"`
-    echo $backup
+BACKUP_FILE=".backup.log"
+SYMBOL_FILE=".symbol.log"
+CONFUSE_FILE=".confuse.log"
+CONFUSE_FLAG=".confuseFlag"
 
-    if [ ! -f $backup ]; then
-        cp $file $backup
-    fi
+SOURCE_ARRAY=( "*.swift" 
+                "*.m" 
+                "*.h" 
+                "*.c" 
+                "*.cpp")
+BACKUP_EXTENSION=".bak"
+
+
+# 格式：echo -e "\033[背景色;前景色m 打印的字符串 \033[0m" 
+# 颜色：重置=0，黑色=30，红色=31，绿色=32，黄色=33，蓝色=34，洋红=35，青色=36，白色=37。
+# 示例：echo -e “\033[30m 我是黑色字 \033[0m” 
+# 参考：https://www.cnblogs.com/xiansong1005/p/7221316.html
+#      https://www.cnblogs.com/lr-ting/archive/2013/02/28/2936792.html
+info() {
+    local green="\033[1;32m"
+    local normal="\033[0m"
+    echo -e "[${green}info${normal}] $1"
 }
 
-# 方案1. 精确备份：用关键字遍历会修改到的swift文件，再将其备份 -- 消耗性能
-# 方案2. 整体备份：备份所有swift文件 -- 消耗存储空间
-# 根据需要，为简单起见，这里选用方案2
-backupAllSwift() {
-    echo "backup all swift files"
-    swiftFiles=`find $CONFUSE_DIR -name *.$SOURCE_TYPE`
-    for file in $swiftFiles; do
-        echo
-        backupFile $file
-    done
+error() {
+    local red="\033[1;31m"
+    local normal="\033[0m"
+    echo -e "[${red}error${normal}] $1"
 }
 
 # 生成随机字符串 16字
@@ -49,13 +57,7 @@ randomString() {
 
 # 获取符号的随机字符串  $1是符号名
 randomStringWithSymbol() {
-    grep -w $1 $CONFUSE_SYMBOL_FILE -h | cut -d \  -f 2
-}
-
-info() {
-    local green="\033[1;32m"
-    local normal="\033[0m"
-    echo "[${green}info${normal}] $1"
+    grep -w $1 $SYMBOL_FILE -h | cut -d \  -f 2
 }
 
 removeIfExist() {
@@ -64,37 +66,88 @@ removeIfExist() {
     fi
 }
 
+# 备份文件 $1:file full path
+backupFile() {
+    file=$1
+    # 在原文件名前加个.（点符合）用作备份名
+    fileName=${file##*/}
+    backupPath=${file/$fileName/.$fileName$BACKUP_EXTENSION}
+    echo "backup $file to $backupPath"
+
+    if [ ! -f $backupPath ]; then
+        cp $file $backupPath
+        echo $backupPath >>$BACKUP_FILE
+    fi
+}
+
+# 方案1. 精确备份：用关键字遍历会修改到的source文件，再将其备份 -- 消耗性能
+# 方案2. 整体备份：备份所有source文件 -- 消耗存储空间
+# 根据需要，为简单起见，这里选用方案2
+backupAllSource() {
+    info "backup all swift files"
+    NAMES="-name \"${SOURCE_ARRAY[0]}\""
+    i=1
+    while [ $i -lt ${#SOURCE_ARRAY[@]} ]; do  
+        NAMES+=" -or -name \"${SOURCE_ARRAY[$i]}\""
+        let i++
+    done
+    # echo $NAMES
+
+    removeIfExist $BACKUP_FILE
+    touch $BACKUP_FILE
+    
+    eval "find $CONFUSE_DIR $NAMES" | while read file; do
+        backupFile $file
+    done
+}
+
 # 混淆工作， ⚠️该函数不会自动备份，要备份请调用safeConfuse函数
 confuseOnly() {
     info "confuse start..."
 
     # 获取要混淆的函数名和变量名
-    grep $CONFUSE_PREFIX -r $CONFUSE_DIR --include="*.$SOURCE_TYPE" -n >$CONFUSE_FILE
+    INCLUDES="--include=\"${SOURCE_ARRAY[0]}\""
+    i=1
+    while [ $i -lt ${#SOURCE_ARRAY[@]} ]; do  
+        INCLUDES+=" --include=\"${SOURCE_ARRAY[$i]}\""
+        let i++    
+    done
+    eval "grep $CONFUSE_PREFIX -r $CONFUSE_DIR $INCLUDES -n" >$CONFUSE_FILE
 
+    # cat $CONFUSE_FILE
     # 绑定随机字符串
-    removeIfExist $CONFUSE_SYMBOL_FILE
-    touch $CONFUSE_SYMBOL_FILE
-    #cat $CONFUSE_FILE | sed "s/.*\($CONFUSE_PREFIX[0-9a-zA-Z_]*\).*/\1/g" | sort | while read line; do
-    cat $CONFUSE_FILE | egrep "$CONFUSE_PREFIX[0-9a-zA-Z_]*" -o | sort | uniq | while read line; do
-        echo $line" `randomString`" >>$CONFUSE_SYMBOL_FILE
+    removeIfExist $SYMBOL_FILE
+    touch $SYMBOL_FILE
+    
+    cat $CONFUSE_FILE | egrep -w $CONFUSE_PREFIX"[0-9a-zA-Z_]*" -o | sort | uniq | while read line; do
+        echo $line" `randomString`" >>$SYMBOL_FILE
     done
 
-    cat $CONFUSE_SYMBOL_FILE
+    # cat $SYMBOL_FILE
 
     # 读取备份文件记录
     # 在这里没使用遍历批量替换，怕文件太多的时候影响性能
     cat $CONFUSE_FILE | while read line; do
-        # 行号
+        echo "> $line"
+        # 截取行号
         lineNum=`echo $line | sed 's/.*:\([0-9]*\):.*/\1/g'`
-        # 文件路径
+        # 截取文件路径
         path=${line%%:*}
-        # 一行可能有多个要替换的子串
-        echo $line | egrep "$CONFUSE_PREFIX[0-9a-zA-Z_]*" -o | while read -ra symbol; do
-            # 绑定随机字符串
+        
+        # 一行可能有多个要替换的子串，要循环遍历完
+        # 这里之所以要用`sort -r`倒序是因为有个bug：如有字符串"jjyy abc hello abcde", 现在要替换"abc"为"123"（abcde保持不变），也就是传说中的‘全匹配替换’，
+        # 但不知为何在macOS下单词边界表达式不起作用：\<abc\> 或者 \babc\b都不起作用，Linux下这个正则表达式是没问题的。
+        # 倒序之后有长串优先替换长串，防止短串把长串部分替换掉。但依然存在bug：若是长串不需要替换，则短串替换是依然会将长串部分替换😂
+        # 因此依然还需要寻找macOS下单词边界/全匹配 的正则表达式
+        echo $line | egrep -w $CONFUSE_PREFIX"[0-9a-zA-Z_]*" -o | sort -r | while read -ra symbol; do
+            # 根据名称获取绑定的随机字符串
             random=`randomStringWithSymbol $symbol`
 #            echo "$path $lineNum $symbol $random"
             # 随机字符串替换
-            sed -i "" "${lineNum}s/$symbol/$random/g" $path
+            # -i：表示直接在原文件替换，""：表示不要备份
+            sed -i "" "${lineNum}s/$symbol/$random/g" $path 
+
+            echo "  $symbol => $random"
         done
     done
 
@@ -104,6 +157,11 @@ confuseOnly() {
 # 编译工作，生成通用framework
 buildAll() {
     info "build start..."
+    
+    if [ -z "$PROJECT_NAME" ]; then
+        echo -e "\033[1;31mERROR：当前版本未配置完整Xcode环境变量，仅支持混淆功能，不支持framework编译，若需编译请用Xcode运行该脚本\033[0m"
+        return
+    fi
 
     # 要build的target名
     TARGET_NAME=${PROJECT_NAME}
@@ -152,17 +210,21 @@ unconfuse() {
     info "clean start..."
 
     # 恢复混淆的函数名所在swift文件的bak内容
-    backups=`find $CONFUSE_DIR -name "*.$BACKUP_TYPE"`
-    for backup in $backups; do
-        file=`echo $backup | sed "s:.\([^.]*.$SOURCE_TYPE\).$BACKUP_TYPE:\1:g"`
-        echo $file
-        cp $backup $file
+    cat $BACKUP_FILE | while read backup; do
+        backupName=${backup##*/}
+        fileName=`echo $backupName | cut -d "." -f2,3`
+        filePath=${backup/$backupName/$fileName}
+        
+        echo "recover $backup to $filePath"
+
+        cp $backup $filePath
         rm $backup
     done
 
     # 删除修改记录
-    removeIfExist $CONFUSE_SYMBOL_FILE
+    removeIfExist $SYMBOL_FILE
     removeIfExist $CONFUSE_FILE
+    removeIfExist $BACKUP_FILE
     removeIfExist $CONFUSE_FLAG
 
     info "clean done"
@@ -172,17 +234,17 @@ unconfuse() {
 precheck() {
     # 创建一个隐藏文件，仅标记混淆编译的状态
     # 由于编译过程有可能被中断，因此混淆后的代码可能未恢复，在开始备份前先做判断
-    if [ ! -f $CONFUSE_FLAG ]; then
-        touch $CONFUSE_FLAG
-    else
-        unconfuse
+    if [ -f $CONFUSE_FLAG ]; then
+        unconfuse        
     fi
+    echo "新建混淆标记"
+    touch $CONFUSE_FLAG
 }
 
 # 去混淆->备份->混淆
 safeConfuse() {
     precheck
-    backupAllSwift
+    backupAllSource
     confuseOnly
 }
 
@@ -198,4 +260,41 @@ safeConfuseAndBuild() {
 
     info "all done"
 }
+
+usage() {
+    echo -e "\033[1;31musage: ./confuseAndBuild.sh [-u|c|b|a]"
+    echo -e "  -u"
+    echo -e "      unconfuse: 清理工作，去混淆"
+    echo -e "  -c"
+    echo -e "      safeConfuse: 去混淆->备份->混淆"
+    echo -e "  -b"
+    echo -e "      buildAll: 编译生成通用framework"    
+    echo -e "  -a"
+    echo -e "      safeConfuseAndBuild: 去混淆->备份->混淆->编译->去混淆"
+    echo -e "EXAMPLE:"
+    echo -e "  ./confuseAndBuild.sh -u\033[0m"
+}
+
+main() {
+    echo "参数个数：$#  参数值:$1"
+    case $1 in
+    "-u" )
+        unconfuse
+        ;;
+    "-c" )
+        safeConfuse
+        ;;
+    "-b" )
+        buildAll
+        ;;
+    "-a" )
+        safeConfuseAndBuild
+        ;;
+    * )
+        usage
+        ;;
+    esac
+}
+
+main $@
 
