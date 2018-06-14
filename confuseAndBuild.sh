@@ -1,5 +1,11 @@
 #!/bin/bash
 
+#  confuseAndBuild.sh
+#  ConfuseSwift
+#
+#  Created by Jonor on 2018/4/28.
+#  Copyright © 2018年 Zhang. All rights reserved.
+
 # ⚠️声明
 # 1. 请将该脚本放在Xcode工程的根目录。
 # 2. 当前版本未配置完整Xcode环境变量，仅支持混淆功能，不支持framework编译，若需编译请用Xcode运行该脚本。
