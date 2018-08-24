@@ -128,7 +128,7 @@ confuseOnly() {
     # 读取备份文件记录
     # 在这里没使用遍历批量替换，怕文件太多的时候影响性能
     cat $CONFUSE_FILE | while read line; do
-        echo "> $line"
+#        echo "> $line"
         # 截取行号
         lineNum=`echo $line | sed 's/.*:\([0-9]*\):.*/\1/g'`
         # 截取文件路径
@@ -208,25 +208,26 @@ buildAll() {
 # 清理工作，去混淆
 unconfuse() {
     info "clean start..."
+    if [ -f $CONFUSE_FLAG ]; then
+        # 恢复混淆的函数名所在source文件的bak内容
+        cat $BACKUP_FILE | while read backup; do
+            backupName=${backup##*/}
+            fileName=`echo $backupName | cut -d "." -f2,3`
+            filePath=${backup/$backupName/$fileName}
+            
+            echo "recover $backup to $filePath"
 
-    # 恢复混淆的函数名所在swift文件的bak内容
-    cat $BACKUP_FILE | while read backup; do
-        backupName=${backup##*/}
-        fileName=`echo $backupName | cut -d "." -f2,3`
-        filePath=${backup/$backupName/$fileName}
-        
-        echo "recover $backup to $filePath"
-
-        cp $backup $filePath
-        rm $backup
-    done
-
-    # 删除修改记录
-    removeIfExist $SYMBOL_FILE
-    removeIfExist $CONFUSE_FILE
-    removeIfExist $BACKUP_FILE
-    removeIfExist $CONFUSE_FLAG
-
+            cp $backup $filePath
+            rm $backup
+        done
+        # 删除修改记录
+        removeIfExist $SYMBOL_FILE
+        removeIfExist $CONFUSE_FILE
+        removeIfExist $BACKUP_FILE
+        removeIfExist $CONFUSE_FLAG
+    else
+        echo "Not confuse yet!"
+    fi
     info "clean done"
 }
 
@@ -234,10 +235,7 @@ unconfuse() {
 precheck() {
     # 创建一个隐藏文件，仅标记混淆编译的状态
     # 由于编译过程有可能被中断，因此混淆后的代码可能未恢复，在开始备份前先做判断
-    if [ -f $CONFUSE_FLAG ]; then
-        unconfuse        
-    fi
-    echo "新建混淆标记"
+    unconfuse        
     touch $CONFUSE_FLAG
 }
 
